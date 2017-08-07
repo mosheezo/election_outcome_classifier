@@ -1,0 +1,201 @@
+
+set.seed(40)
+
+# Read a file
+election_campaign <- read.csv(".../Dataset/election_campaign_data.csv",
+                              sep=",", header=T, strip.white = T, na.strings = c("NA","NaN","","?"))
+
+# Explore data
+
+summary(election_campaign)
+
+# Drop these variables
+election_campaign <- subset(election_campaign, ,-c(cand_id, last_name, first_name, twitterbirth, facebookdate, facebookjan, youtubebirth))
+
+
+# Conversion to factor variables
+election_campaign$twitter <- as.factor(election_campaign$twitter)
+election_campaign$facebook <- as.factor(election_campaign$facebook)
+election_campaign$youtube <- as.factor(election_campaign$youtube)
+election_campaign$cand_ici <- as.factor(election_campaign$cand_ici)
+election_campaign$gen_election <- as.factor(election_campaign$gen_election)
+
+# Remove missing values
+election_campaign <- election_campaign[complete.cases(election_campaign),]
+
+
+# Data splitting
+
+n = nrow(election_campaign) # n will be ther number of obs. in data
+trainIndex = sample(1:n, 
+                    size = round(0.7*n), 
+                    replace=FALSE) # We create an index for 70% of obs. by random
+train_data = election_campaign[trainIndex,] # We use the index to create training data
+test_data = election_campaign[-trainIndex,]
+
+# Random FOrest Classifier on train data
+
+library(randomForest)
+
+#Building with 10 trees
+rf_train <- randomForest(gen_election~., data = train_data, ntree=10, na.action=na.exclude, importance=T, proximity=T )
+print(rf_train)   # OOB - 9.92
+
+#Building with 20 trees
+rf_train <- randomForest(gen_election~., data = train_data, ntree=20, na.action=na.exclude, importance=T, proximity=T )
+print(rf_train)  # OOB - 8.62
+
+#Building with 30 trees
+rf_train <- randomForest(gen_election~., data = train_data, ntree=30, na.action=na.exclude, importance=T, proximity=T )
+print(rf_train)  # OOB - 7.08%
+
+#Building with 40 trees
+rf_train <- randomForest(gen_election~., data = train_data, ntree=40, na.action=na.exclude, importance=T, proximity=T )
+print(rf_train)  # OOB - 7.23%
+
+#Building with 50 trees
+rf_train <- randomForest(gen_election~., data = train_data, ntree=50, na.action=na.exclude, importance=T, proximity=T )
+print(rf_train)  # OOB - 6.15%
+
+#Building with 60 trees
+rf_train <- randomForest(gen_election~., data = train_data, ntree=60, na.action=na.exclude, importance=T, proximity=T )
+print(rf_train)  # OOB - 6.92%
+
+#Building with 70 trees
+rf_train <- randomForest(gen_election~., data = train_data, ntree=70, na.action=na.exclude, importance=T, proximity=T )
+print(rf_train)  # OOB - 6.46
+
+#Building with 80 trees
+rf_train <- randomForest(gen_election~., data = train_data, ntree=80, na.action=na.exclude, importance=T, proximity=T )
+print(rf_train)  # OOB - 6%
+
+#Building with 90 trees
+rf_train <- randomForest(gen_election~., data = train_data, ntree=90, na.action=na.exclude, importance=T, proximity=T )
+print(rf_train)  # OOB - 6.46%
+
+#Building with 100 trees
+rf_train <- randomForest(gen_election~., data = train_data, ntree=100, na.action=na.exclude, importance=T, proximity=T )
+print(rf_train)  # OOB - 6.31%
+
+
+# Tuning the random forest classifier
+mtry <- tuneRF(train_data[-26], train_data$gen_election, ntreeTry=80,  stepFactor=1.5, improve=0.01, trace=TRUE, plot=TRUE, na.action=na.exclude)
+
+# Building another classifier
+rf_train <- randomForest(gen_election~., data = train_data, ntree=80, mtry=15, na.action=na.exclude, importance=T, proximity=T )
+print(rf_train)  # OOB - 6.03%
+
+
+install.packages("e1071")
+library(e1071)
+library(caret)
+
+# Make predictions using the test data
+
+library(ROCR)
+library(ggplot2)
+
+
+predicted_values <- predict(rf_train, test_data,type= "prob")[,2]
+threshold <- 0.5
+pred <- factor( ifelse(predicted_values > threshold, 'W', 'L') )
+levels(test_data$gen_election)[2]
+confusionMatrix(pred, test_data$gen_election, positive = levels(test_data$gen_election)[2])
+
+pred <- prediction(predicted_values, test_data$gen_election)
+perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+auc <- performance(pred, measure = "auc")
+
+
+auc <- auc@y.values[[1]]
+
+roc.data <- data.frame(fpr=unlist(perf@x.values),
+                       tpr=unlist(perf@y.values),
+                       model="RF")
+ggplot(roc.data, aes(x=fpr, ymin=0, ymax=tpr)) +
+  geom_ribbon(alpha=0.2) +
+  geom_line(aes(y=tpr)) +
+  ggtitle(paste0("ROC Curve w/ AUC=", auc))
+
+
+varImpPlot(rf_train)
+
+
+# Neural Networks
+
+library(nnet) 
+
+ann_train <- nnet(gen_election ~ ., data=train_data, size=24, maxit=1000)
+
+summary(ann_train)
+
+ann_predicted_values <- predict(ann_train, test_data, type= "raw") 
+
+ann_pred <- factor( ifelse(ann_predicted_values[,1] > threshold, 'W', 'L') )
+
+confusionMatrix(ann_pred, test_data$gen_election, positive = 'W')
+
+
+ann_pred <- prediction(ann_predicted_values, test_data$gen_election)
+ann_perf <- performance(ann_pred, measure = "tpr", x.measure = "fpr")
+ann_auc <- performance(ann_pred, measure = "auc")
+ann_auc <- ann_auc@y.values[[1]]
+ann_roc.data <- data.frame(fpr=unlist(ann_perf@x.values),
+                       tpr=unlist(ann_perf@y.values),
+                       model="ANN")
+ggplot(ann_roc.data, aes(x=fpr, ymin=0, ymax=tpr)) +
+  geom_ribbon(alpha=0.2) +
+  geom_line(aes(y=tpr)) +
+  ggtitle(paste0("ROC Curve w/ AUC=", ann_auc))
+
+
+# GBM classifier
+library(Metrics)
+
+gbm_caret <- train(as.factor(gen_election) ~ ., data = train_data, method = "gbm", trControl = trainControl(method = "repeatedcv", number = 4, repeats = 4),verbose = FALSE)
+
+summary(gbm_caret)
+
+gbm_predicted_values <- predict(gbm_caret, test_data,type= "prob")[,2]
+gbm_pred <- factor( ifelse(gbm_predicted_values > threshold, 'W', 'L') )
+confusionMatrix(gbm_pred, test_data$gen_election, positive = levels(test_data$gen_election)[2])
+
+gbm_pred <- prediction(gbm_predicted_values, test_data$gen_election)
+gbm_perf <- performance(gbm_pred, measure = "tpr", x.measure = "fpr")
+gbm_auc <- performance(gbm_pred, measure = "auc")
+
+gbm_auc <- gbm_auc@y.values[[1]]
+
+gbm_roc.data <- data.frame(fpr=unlist(gbm_perf@x.values),
+                       tpr=unlist(gbm_perf@y.values),
+                       model="GBM")
+ggplot(gbm_roc.data, aes(x=fpr, ymin=0, ymax=tpr)) +
+  geom_ribbon(alpha=0.2) +
+  geom_line(aes(y=tpr)) +
+  ggtitle(paste0("ROC Curve w/ AUC=", gbm_auc))
+
+
+# Social Media platform
+ftable(xtabs(~twitter+facebook+youtube+gen_election, data=election_campaign))
+
+
+
+# Money Buys Political Power
+other_pol_cmte_contrib+opp_fund+coh_cop+facebook+cand_pty_affiliation+ttl_receipts
+
+other_pol_cmte_contrib; coh_cop; opp_fund; facebook; ttl_receipts.
+
+
+plot(election_campaign$gen_election, election_campaign$other_pol_cmte_contrib)
+
+plot(election_campaign$gen_election, election_campaign$coh_cop)
+
+plot(election_campaign$gen_election, election_campaign$opp_fund)
+
+plot(election_campaign$gen_election, election_campaign$facebook)
+
+plot(election_campaign$gen_election, election_campaign$cand_pty_affiliation)
+
+plot(election_campaign$gen_election, election_campaign$ttl_receipts)
+
+plot(election_campaign$gen_election, election_campaign$youtube)
